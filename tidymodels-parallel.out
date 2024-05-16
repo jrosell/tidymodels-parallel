@@ -1,0 +1,3537 @@
+
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 15:46:52.286114
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 15:46:53.740545
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 15:46:53.751457
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 15:46:53.773198
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 15:46:53.781803
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 2
+Columns: 2
+$ trees      <int> 876, 1419
+$ learn_rate <dbl> 0.171055635, 0.009210287
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 15:46:53.799482
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 15:47:08.142365
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 15:47:33.057183
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 15:47:46.952746
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 15:47:51.057353
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 15:48:00.061449
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 15:48:07.898656
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          3          10000      2 user_engine_only         73.1     25.0  
+2          3          10000      2 user_tidymodels_only      0.982    0.357
+3          3          10000      2 user_both                 0.477    0.312
+4          3          10000      2 elapsed_engine_only      14.2      3.96 
+5          3          10000      2 elapsed_tidymodels_only  24.2      8.58 
+6          3          10000      2 elapsed_both             13.4      7.36 
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+103.915   3.140  76.002 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 15:48:08.920018
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 15:48:10.307047
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 15:48:10.318259
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 15:48:10.340925
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 15:48:10.350252
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 2
+Columns: 2
+$ trees      <int> 876, 1419
+$ learn_rate <dbl> 0.171055635, 0.009210287
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 15:48:10.368426
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 15:48:31.561307
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 15:49:01.064723
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 15:49:19.365032
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 15:49:24.874687
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 15:49:35.907554
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 15:49:45.291895
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          4          10000      2 user_engine_only        107.      32.5  
+2          4          10000      2 user_tidymodels_only      1.22     0.383
+3          4          10000      2 user_both                 0.593    0.352
+4          4          10000      2 elapsed_engine_only      21.1      5.35 
+5          4          10000      2 elapsed_tidymodels_only  28.8     10.6  
+6          4          10000      2 elapsed_both             17.8      8.93 
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+145.394   3.119  96.764 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 15:49:46.467937
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 15:49:47.898576
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 15:49:47.909396
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 15:49:47.931144
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 15:49:47.940216
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 2
+Columns: 2
+$ trees      <int> 876, 1419
+$ learn_rate <dbl> 0.171055635, 0.009210287
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 15:49:47.957613
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 15:50:16.525414
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 15:50:48.869785
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 15:51:13.325026
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 15:51:20.010508
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 15:51:32.945604
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 15:51:43.960203
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          5          10000      2 user_engine_only        145.      38.5  
+2          5          10000      2 user_tidymodels_only      1.36     0.457
+3          5          10000      2 user_both                 0.807    0.408
+4          5          10000      2 elapsed_engine_only      28.5      6.51 
+5          5          10000      2 elapsed_tidymodels_only  31.6     12.5  
+6          5          10000      2 elapsed_both             24.0     10.5  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+190.467   3.101 117.925 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 15:51:45.165104
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 15:51:46.608773
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 15:51:46.620112
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 15:51:46.642422
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 15:51:46.652981
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 2
+Columns: 2
+$ trees      <int> 876, 1419
+$ learn_rate <dbl> 0.171055635, 0.009210287
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 15:51:46.671658
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 15:52:22.839713
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 15:53:16.239884
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 15:53:45.904907
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 15:53:54.215032
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 15:54:07.110461
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 15:54:18.65277
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          6          10000      2 user_engine_only         193.     47.1  
+2          6          10000      2 user_tidymodels_only       1.90    0.464
+3          6          10000      2 user_both                  1.04    0.414
+4          6          10000      2 elapsed_engine_only       36.0     8.15 
+5          6          10000      2 elapsed_tidymodels_only   52.7    12.4  
+6          6          10000      2 elapsed_both              29.2    11.1  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+247.741   3.379 153.897 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 15:54:20.055884
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 15:54:21.463735
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 15:54:21.475319
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 15:54:21.498203
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 15:54:21.508361
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 2
+Columns: 2
+$ trees      <int> 876, 1419
+$ learn_rate <dbl> 0.171055635, 0.009210287
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 15:54:21.527263
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 15:55:04.365332
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 15:56:02.512075
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 15:56:41.203447
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 15:56:50.794909
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 15:57:06.834699
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 15:57:20.125494
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          7          10000      2 user_engine_only         225.     54.4  
+2          7          10000      2 user_tidymodels_only       2.16    0.517
+3          7          10000      2 user_both                  1.32    0.489
+4          7          10000      2 elapsed_engine_only       42.7     9.46 
+5          7          10000      2 elapsed_tidymodels_only   57.4    15.6  
+6          7          10000      2 elapsed_both              38.1    12.8  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+287.536   3.645 180.521 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 15:57:21.660178
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 15:57:23.042699
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 15:57:23.053639
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 15:57:23.076582
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 15:57:23.087522
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 2
+Columns: 2
+$ trees      <int> 876, 1419
+$ learn_rate <dbl> 0.171055635, 0.009210287
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 15:57:23.105843
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 15:58:12.487491
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 15:59:11.804407
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 15:59:52.734621
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 16:00:03.148052
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 16:00:19.22988
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 16:00:31.840129
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          8          10000      2 user_engine_only         251.     58.0  
+2          8          10000      2 user_tidymodels_only       2.28    0.582
+3          8          10000      2 user_both                  1.47    0.470
+4          8          10000      2 elapsed_engine_only       49.3    10.3  
+5          8          10000      2 elapsed_tidymodels_only   58.6    15.6  
+6          8          10000      2 elapsed_both              40.4    12.1  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+317.242   3.413 190.634 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 16:00:33.364087
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 16:00:34.727254
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 16:00:34.738038
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 16:00:34.760216
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 16:00:34.770808
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 2
+Columns: 2
+$ trees      <int> 876, 1419
+$ learn_rate <dbl> 0.171055635, 0.009210287
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 16:00:34.788486
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 16:01:30.08189
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 16:02:30.745963
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 16:03:18.145989
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 16:03:29.939798
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 16:03:46.112319
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 16:03:59.815967
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          9          10000      2 user_engine_only         278.     65.7  
+2          9          10000      2 user_tidymodels_only       2.58    0.554
+3          9          10000      2 user_both                  1.54    0.431
+4          9          10000      2 elapsed_engine_only       55.2    11.7  
+5          9          10000      2 elapsed_tidymodels_only   59.9    15.8  
+6          9          10000      2 elapsed_both              46.9    13.2  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+352.657   3.559 206.902 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 16:04:01.46859
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 16:04:02.871709
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 16:04:02.883034
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 16:04:02.905819
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 16:04:02.917153
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 2
+Columns: 2
+$ trees      <int> 876, 1419
+$ learn_rate <dbl> 0.171055635, 0.009210287
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 16:04:02.935954
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 16:05:05.914968
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 16:06:07.158273
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 16:07:02.174686
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 16:07:15.366608
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 16:07:31.589999
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 16:07:45.528132
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1         10          10000      2 user_engine_only         320.     74.3  
+2         10          10000      2 user_tidymodels_only       2.74    0.579
+3         10          10000      2 user_both                  2.05    0.443
+4         10          10000      2 elapsed_engine_only       62.8    13.1  
+5         10          10000      2 elapsed_tidymodels_only   60.5    15.8  
+6         10          10000      2 elapsed_both              54.5    13.4  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+404.251   3.578 224.526 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 16:07:47.282119
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 16:07:48.716823
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 16:07:48.728078
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 16:07:48.750933
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 16:07:48.760616
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 10
+Columns: 2
+$ trees      <int> 1175, 684, 558, 1555, 861, 1767, 1354, 42, 241, 1998
+$ learn_rate <dbl> 0.172960678, 0.081653469, 0.004564218, 0.039221607, 0.00172…
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 16:07:48.779389
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 16:08:49.158888
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 16:10:14.691936
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 16:10:59.620194
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 16:11:16.184551
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 16:11:34.821898
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 16:11:49.483772
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          3          10000     10 user_engine_only         309.    105.   
+2          3          10000     10 user_tidymodels_only       3.13    0.740
+3          3          10000     10 user_both                  1.53    0.612
+4          3          10000     10 elapsed_engine_only       60.3    16.4  
+5          3          10000     10 elapsed_tidymodels_only   84.8    18.2  
+6          3          10000     10 elapsed_both              44.4    14.2  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+423.776   3.972 242.667 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 16:11:50.55834
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 16:11:51.936443
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 16:11:51.947305
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 16:11:51.969421
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 16:11:51.978723
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 10
+Columns: 2
+$ trees      <int> 1175, 684, 558, 1555, 861, 1767, 1354, 42, 241, 1998
+$ learn_rate <dbl> 0.172960678, 0.081653469, 0.004564218, 0.039221607, 0.00172…
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 16:11:51.996705
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 16:13:23.119655
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 16:15:01.617106
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 16:16:13.910302
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 16:16:35.9765
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 16:16:56.742435
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 16:17:14.555332
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          4          10000     10 user_engine_only         475.    135.   
+2          4          10000     10 user_tidymodels_only       4.15    0.836
+3          4          10000     10 user_both                  2.72    0.722
+4          4          10000     10 elapsed_engine_only       91.0    21.9  
+5          4          10000     10 elapsed_tidymodels_only   97.8    20.3  
+6          4          10000     10 elapsed_both              71.8    17.3  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+621.648   4.661 324.426 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 16:17:15.729917
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 16:17:17.103303
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 16:17:17.113994
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 16:17:17.135979
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 16:17:17.145317
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 10
+Columns: 2
+$ trees      <int> 1175, 684, 558, 1555, 861, 1767, 1354, 42, 241, 1998
+$ learn_rate <dbl> 0.172960678, 0.081653469, 0.004564218, 0.039221607, 0.00172…
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 16:17:17.163337
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 16:19:16.553678
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 16:21:04.367093
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 16:23:09.737567
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 16:23:36.469192
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 16:23:59.444804
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 16:24:20.355303
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          5          10000     10 user_engine_only         609.    160.   
+2          5          10000     10 user_tidymodels_only       4.96    0.940
+3          5          10000     10 user_both                  4.61    0.693
+4          5          10000     10 elapsed_engine_only      119.     26.6  
+5          5          10000     10 elapsed_tidymodels_only  107.     22.5  
+6          5          10000     10 elapsed_both             125.     20.5  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+783.540   4.604 425.039 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 16:24:21.622048
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 16:24:22.982904
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 16:24:22.993787
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 16:24:23.015713
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 16:24:23.025242
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 10
+Columns: 2
+$ trees      <int> 1175, 684, 558, 1555, 861, 1767, 1354, 42, 241, 1998
+$ learn_rate <dbl> 0.172960678, 0.081653469, 0.004564218, 0.039221607, 0.00172…
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 16:24:23.043045
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 16:26:55.286613
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 16:30:20.74942
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 16:32:44.355065
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 16:33:16.102027
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 16:33:48.692432
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 16:34:12.917109
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          6          10000     10 user_engine_only         782.    187.   
+2          6          10000     10 user_tidymodels_only       7.73    1.22 
+3          6          10000     10 user_both                  4.68    0.827
+4          6          10000     10 elapsed_engine_only      152.     31.6  
+5          6          10000     10 elapsed_tidymodels_only  205.     32.1  
+6          6          10000     10 elapsed_both             143.     23.7  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+   user  system elapsed 
+987.275   5.343 591.705 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 16:34:14.272699
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 16:34:15.669705
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 16:34:15.680451
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 16:34:15.701861
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 16:34:15.711159
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 10
+Columns: 2
+$ trees      <int> 1175, 684, 558, 1555, 861, 1767, 1354, 42, 241, 1998
+$ learn_rate <dbl> 0.172960678, 0.081653469, 0.004564218, 0.039221607, 0.00172…
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 16:34:15.728565
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 16:37:18.093957
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 16:40:54.678812
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 16:43:50.385525
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 16:44:28.151495
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 16:45:04.384839
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 16:45:33.460274
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          7          10000     10 user_engine_only         938.    222.   
+2          7          10000     10 user_tidymodels_only       8.46    1.35 
+3          7          10000     10 user_both                  6.27    0.982
+4          7          10000     10 elapsed_engine_only      182.     37.6  
+5          7          10000     10 elapsed_tidymodels_only  216.     35.8  
+6          7          10000     10 elapsed_both             175.     28.6  
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+    user   system  elapsed 
+1180.614    5.870  679.606 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 16:45:34.918967
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 16:45:36.276407
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 16:45:36.287263
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 16:45:36.309442
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 16:45:36.319956
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 10
+Columns: 2
+$ trees      <int> 1175, 684, 558, 1555, 861, 1767, 1354, 42, 241, 1998
+$ learn_rate <dbl> 0.172960678, 0.081653469, 0.004564218, 0.039221607, 0.00172…
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 16:45:36.338278
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 16:49:01.53437
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 16:52:43.562046
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 16:55:46.392008
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 16:56:28.043337
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 16:57:04.905125
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 16:57:38.059012
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          8          10000     10 user_engine_only        1039.     241.  
+2          8          10000     10 user_tidymodels_only       8.54     1.51
+3          8          10000     10 user_both                  5.75     1.10
+4          8          10000     10 elapsed_engine_only      205.      41.5 
+5          8          10000     10 elapsed_tidymodels_only  221.      36.4 
+6          8          10000     10 elapsed_both             182.      32.7 
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+    user   system  elapsed 
+1301.249    6.097  723.575 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 16:57:39.585933
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 16:57:40.939527
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 16:57:40.950295
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 16:57:40.972339
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 16:57:40.982598
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 10
+Columns: 2
+$ trees      <int> 1175, 684, 558, 1555, 861, 1767, 1354, 42, 241, 1998
+$ learn_rate <dbl> 0.172960678, 0.081653469, 0.004564218, 0.039221607, 0.00172…
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 16:57:40.999972
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 17:01:35.764505
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 17:05:21.560694
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 17:08:48.332611
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 17:09:34.894997
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 17:10:12.108388
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 17:10:49.12031
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1          9          10000     10 user_engine_only        1182.     268.  
+2          9          10000     10 user_tidymodels_only       9.27     1.56
+3          9          10000     10 user_both                  6.75     1.22
+4          9          10000     10 elapsed_engine_only      235.      46.4 
+5          9          10000     10 elapsed_tidymodels_only  225.      36.8 
+6          9          10000     10 elapsed_both             206.      36.6 
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+    user   system  elapsed 
+1472.111    6.302  789.981 
+
+R version 4.4.0 (2024-04-24) -- "Puppy Cup"
+Copyright (C) 2024 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # R CMD BATCH tidymodels-gbm.R
+> 
+> # Preparations =========
+> cat(paste0("loading ",Sys.time(),"\n"))
+loading 2024-05-15 17:10:50.771864
+> suppressPackageStartupMessages({
++     # suppressMessages, suppressWarnings...
++     # {r warning = FALSE, message=FALSE}
++     # knitr::opts_chunk$set( message = FALSE, warning = FALSE ) 
++     library(tidyverse)
++     library(tidymodels)
++     library(bonsai)
++     library(future)
++     library(lightgbm)
++     library(xgboost)
++ })
+> 
+> cat(paste0("settings ",Sys.time(),"\n"))
+settings 2024-05-15 17:10:52.104937
+> args=(commandArgs(TRUE))
+> if(length(args)==0){
++     print("No arguments supplied. Defining default settings")
++     n_rsamples <- 3
++     n_observations <- 1e4
++     n_grid <- 2
++ } else {
++     for(i in 1:length(args)){
++         eval(parse(text=args[[i]]))
++     }
++ }
+> 
+> cat(paste0("data ",Sys.time(),"\n"))
+data 2024-05-15 17:10:52.115738
+> form <- class ~ .
+> set.seed(1)
+> 
+> dat <- sim_classification(n_observations)
+> glimpse(dat)
+Rows: 10,000
+Columns: 16
+$ class        <fct> class_2, class_2, class_2, class_2, class_2, class_2, cla…
+$ two_factor_1 <dbl> -0.328845498, 0.860943127, -0.460835981, 2.750562257, 0.7…
+$ two_factor_2 <dbl> -1.28054348, -0.38915489, -1.68593279, 1.34778833, 0.1271…
+$ non_linear_1 <dbl> 0.1860618, 0.1057664, 0.1934081, -0.2147386, -0.4792482, …
+$ non_linear_2 <dbl> 0.577914868, 0.700637513, 0.337263661, 0.119020608, 0.877…
+$ non_linear_3 <dbl> 0.73168672, 0.64741718, 0.81420680, 0.10435890, 0.3344143…
+$ linear_01    <dbl> 0.698630850, -1.165071096, 0.171350482, 1.186716207, 0.41…
+$ linear_02    <dbl> 0.53765594, 1.25817047, -0.64339123, 0.45780911, 0.772037…
+$ linear_03    <dbl> -0.131044323, -1.424096275, -0.369662639, 0.855045088, 0.…
+$ linear_04    <dbl> -1.2063436, 0.2742060, 0.1868220, -0.2637680, -1.0919296,…
+$ linear_05    <dbl> 0.35002823, 0.40532916, 0.08469671, 0.23416819, -0.155031…
+$ linear_06    <dbl> -1.09726565, 2.42558030, 1.05186103, -0.08834213, 2.63979…
+$ linear_07    <dbl> 0.990653173, -0.724100470, 0.670046482, -0.570115902, 0.7…
+$ linear_08    <dbl> 1.30217657, 1.00364321, -0.87551486, -0.99261950, 0.33085…
+$ linear_09    <dbl> 1.97389104, -0.34318061, -0.70702446, -0.05308028, -0.500…
+$ linear_10    <dbl> 0.2439399, 0.9207857, -1.0707881, -0.6173009, 0.7043086, …
+> 
+> cat(paste0("split ",Sys.time(),"\n"))
+split 2024-05-15 17:10:52.137232
+> set.seed(1)
+> dat_split <- initial_split(dat)
+> dat_train <- training(dat_split)
+> dat_test <- testing(dat_split)
+> dat_folds <- vfold_cv(dat_train, v = n_rsamples)
+> 
+> cat(paste0("grid ",Sys.time(),"\n"))
+grid 2024-05-15 17:10:52.14765
+> spec_bt <-
++     boost_tree(learn_rate = tune(), trees = tune()) %>%
++     set_mode("classification")
+> set.seed(1)
+> grid_bt <-
++     spec_bt %>%
++     extract_parameter_set_dials() %>%
++     grid_latin_hypercube(size = n_grid)
+> glimpse(grid_bt)
+Rows: 10
+Columns: 2
+$ trees      <int> 1175, 684, 558, 1555, 861, 1767, 1354, 42, 241, 1998
+$ learn_rate <dbl> 0.172960678, 0.081653469, 0.004564218, 0.039221607, 0.00172…
+> 
+> 
+> # XGBoost =========
+> 
+> cat(paste0("xgboost sequential ",Sys.time(),"\n"))
+xgboost sequential 2024-05-15 17:10:52.164774
+> plan(sequential)
+> timing_xgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost tidymodels ",Sys.time(),"\n"))
+xgboost tidymodels 2024-05-15 17:15:15.236947
+> plan(multisession, workers = 5)
+> timing_xgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("xgboost both ",Sys.time(),"\n"))
+xgboost both 2024-05-15 17:19:05.95782
+> plan(multisession, workers = 5)
+> timing_xgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("xgboost", nthread = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # LightGBM =========
+> 
+> cat(paste0("lightgbm sequential ",Sys.time(),"\n"))
+lightgbm sequential 2024-05-15 17:23:27.718774
+> plan(sequential)
+> timing_lgb_1 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm tidymodels ",Sys.time(),"\n"))
+lightgbm tidymodels 2024-05-15 17:24:19.426354
+>  plan(multisession, workers = 5)
+> timing_lgb_2 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 1),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> cat(paste0("lightgbm both ",Sys.time(),"\n"))
+lightgbm both 2024-05-15 17:24:56.607044
+> plan(multisession, workers = 5)
+> timing_lgb_3 <- system.time({
++     res <-
++         tune_grid(
++             spec_bt %>% set_engine("lightgbm", num_threads = 5),
++             form,
++             dat_folds,
++             grid = grid_bt
++         )
++ })
+> 
+> 
+> # Results =========
+> 
+> cat(paste0("Results ",Sys.time(),"\n"))
+Results 2024-05-15 17:25:40.268568
+> 
+> results <- tibble(
++     n_rsamples = n_rsamples,
++     n_observations = n_observations,
++     n_grid = n_grid,
++     approach = c("user_engine_only", "user_tidymodels_only", "user_both", "elapsed_engine_only", "elapsed_tidymodels_only", "elapsed_both"),
++     xgboost = c(timing_xgb_1[['user.self']], timing_xgb_2[['user.self']], timing_xgb_3[['user.self']], timing_xgb_1[['elapsed']], timing_xgb_2[['elapsed']], timing_xgb_3[['elapsed']]),
++     lightgbm = c(timing_lgb_1[['user.self']], timing_lgb_2[['user.self']], timing_lgb_3[['user.self']], timing_lgb_1[['elapsed']], timing_lgb_2[['elapsed']], timing_lgb_3[['elapsed']])
++ )
+> 
+> library(tidymodels)
+> 
+> print(results)
+# A tibble: 6 × 6
+  n_rsamples n_observations n_grid approach                xgboost lightgbm
+       <dbl>          <dbl>  <dbl> <chr>                     <dbl>    <dbl>
+1         10          10000     10 user_engine_only        1323.     294.  
+2         10          10000     10 user_tidymodels_only      10.2      1.69
+3         10          10000     10 user_both                  8.43     1.44
+4         10          10000     10 elapsed_engine_only      263.      51.6 
+5         10          10000     10 elapsed_tidymodels_only  230.      36.7 
+6         10          10000     10 elapsed_both             261.      43.2 
+> write_rds(
++     results,
++     paste0("results_", gsub(" ", "-", Sys.time()), ".rds")
++ )
+> 
+> proc.time()
+    user   system  elapsed 
+1642.001    6.684  889.952 
