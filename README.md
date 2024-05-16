@@ -6,4 +6,7 @@ README
   R script with multiple parameters.
 - The tidymodels-parallel.R file is a R script to run the benchmarking
   according to number of resamples and number of options in the grid.
-- Here the results: ![](results.png)
+- The tidymodels-parallel-collect.R file is the script to collect the
+  results and make the final plot. Here the results:
+
+![](results.png)
